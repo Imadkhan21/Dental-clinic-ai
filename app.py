@@ -194,6 +194,251 @@ def clear_chat():
         conn.commit()
     return jsonify({'status': 'cleared'})
 
+from datetime import datetime, timedelta
+
+@app.route('/get_chart_data', methods=['POST'])
+def get_chart_data():
+    try:
+        data = request.json
+        days = int(data.get('days', 30))
+        chart_type = data.get('chart_type', 'bar')
+        
+        with data_lock:
+            df = data_cache.copy() if data_cache is not None else None
+        
+        if df is None:
+            return jsonify({'error': 'No data loaded. Please upload a CSV file first.'}), 400
+        
+        # Check for required columns
+        required_columns = ['Invoice date', 'description']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return jsonify({
+                'error': f'Missing required columns: {", ".join(missing_columns)}'
+            }), 400
+        
+        # Convert Invoice date to datetime and filter
+        df['Invoice date'] = pd.to_datetime(df['Invoice date'], errors='coerce')
+        df = df.dropna(subset=['Invoice date'])
+        
+        # Filter for the specified number of days
+        start_date = datetime.now() - timedelta(days=days)
+        filtered_df = df[df['Invoice date'] >= start_date]
+        
+        if filtered_df.empty:
+            return jsonify({
+                'error': f'No records found in the last {days} days.'
+            }), 404
+        
+        # Aggregate by description
+        counts = filtered_df['description'].value_counts().reset_index()
+        counts.columns = ['label', 'value']
+        
+        # Limit to top 10 items for better visualization
+        if len(counts) > 10:
+            counts = counts.head(10)
+            other_count = len(filtered_df) - counts['value'].sum()
+            if other_count > 0:
+                counts = pd.concat([
+                    counts,
+                    pd.DataFrame({'label': ['Other'], 'value': [other_count]})
+                ], ignore_index=True)
+        
+        return jsonify({
+            'labels': counts['label'].tolist(),
+            'values': counts['value'].tolist(),
+            'chart_type': chart_type,
+            'total_records': len(filtered_df),
+            'date_range': {
+                'start': start_date.strftime('%Y-%m-%d'),
+                'end': datetime.now().strftime('%Y-%m-%d')
+            }
+        })
+    
+    except Exception as e:
+        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
+    
+    
+from datetime import datetime, timedelta
+import pandas as pd
+from flask import request, jsonify
+
+# Add this route for query data
+@app.route('/get_query_data', methods=['POST'])
+def get_query_data():
+    try:
+        data = request.json
+        query_type = data.get('query_type')
+        query_params = data.get('params', {})
+        
+        with data_lock:
+            df = data_cache.copy() if data_cache is not None else None
+        
+        if df is None:
+            return jsonify({'error': 'No data loaded. Please upload a CSV file first.'}), 400
+        
+        # Replace NaN values with None
+        df = df.where(pd.notnull(df), None)
+        
+        result = {}
+        
+        if query_type == 'patients_by_days':
+            # Query: How many patients came in the last X days?
+            days = int(query_params.get('days', 15))
+            
+            # Check if 'Invoice date' column exists
+            if 'Invoice date' not in df.columns:
+                return jsonify({'error': 'CSV must have an "Invoice date" column'}), 400
+            
+            # Convert to datetime
+            df['Invoice date'] = pd.to_datetime(df['Invoice date'], errors='coerce')
+            df = df.dropna(subset=['Invoice date'])
+            
+            # Filter for the specified number of days
+            start_date = datetime.now() - timedelta(days=days)
+            filtered_df = df[df['Invoice date'] >= start_date]
+            
+            # Count patients per day
+            daily_counts = filtered_df.groupby(filtered_df['Invoice date'].dt.date).size().reset_index(name='count')
+            
+            result = {
+                'labels': [date.strftime('%Y-%m-%d') for date in daily_counts['Invoice date']],
+                'values': daily_counts['count'].tolist(),
+                'title': f'Patient Count - Last {days} Days',
+                'total_patients': len(filtered_df)
+            }
+            
+        elif query_type == 'patients_by_location':
+            # Query: How many patients came from a specific location?
+            location = query_params.get('location', '')
+            
+            # Find location column (could be named 'city', 'location', etc.)
+            location_column = None
+            for col in ['city', 'location', 'address', 'patient_location']:
+                if col in df.columns:
+                    location_column = col
+                    break
+            
+            if not location_column:
+                return jsonify({'error': 'No location column found in CSV'}), 400
+            
+            # Filter by location (case insensitive)
+            if location:
+                filtered_df = df[df[location_column].astype(str).str.lower().str.contains(location.lower(), na=False)]
+            else:
+                filtered_df = df.copy()
+            
+            # Group by location
+            location_counts = filtered_df[location_column].value_counts().reset_index()
+            location_counts.columns = ['label', 'value']
+            
+            # Limit to top 10 for better visualization
+            if len(location_counts) > 10:
+                location_counts = location_counts.head(10)
+            
+            result = {
+                'labels': location_counts['label'].tolist(),
+                'values': location_counts['value'].tolist(),
+                'title': f'Patients by Location{f" - {location}" if location else ""}',
+                'total_patients': len(filtered_df)
+            }
+            
+        elif query_type == 'patients_by_treatment':
+            # Query: How many patients had specific treatments?
+            treatment = query_params.get('treatment', '')
+            
+            # Find treatment column
+            treatment_column = None
+            for col in ['treatment', 'description', 'procedure', 'service']:
+                if col in df.columns:
+                    treatment_column = col
+                    break
+            
+            if not treatment_column:
+                return jsonify({'error': 'No treatment column found in CSV'}), 400
+            
+            # Filter by treatment (case insensitive)
+            if treatment:
+                filtered_df = df[df[treatment_column].astype(str).str.lower().str.contains(treatment.lower(), na=False)]
+            else:
+                filtered_df = df.copy()
+            
+            # Group by treatment
+            treatment_counts = filtered_df[treatment_column].value_counts().reset_index()
+            treatment_counts.columns = ['label', 'value']
+            
+            # Limit to top 10 for better visualization
+            if len(treatment_counts) > 10:
+                treatment_counts = treatment_counts.head(10)
+            
+            result = {
+                'labels': treatment_counts['label'].tolist(),
+                'values': treatment_counts['value'].tolist(),
+                'title': f'Patients by Treatment{f" - {treatment}" if treatment else ""}',
+                'total_patients': len(filtered_df)
+            }
+            
+        else:
+            return jsonify({'error': 'Invalid query type'}), 400
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
+
+# Add this route for finding a patient
+@app.route('/find_patient', methods=['POST'])
+def find_patient():
+    try:
+        data = request.json
+        patient_id = data.get('patient_id', '').strip()
+        patient_name = data.get('patient_name', '').strip()
+        
+        with data_lock:
+            df = data_cache.copy() if data_cache is not None else None
+        
+        if df is None:
+            return jsonify({'error': 'No data loaded. Please upload a CSV file first.'}), 400
+        
+        # Replace NaN values with None
+        df = df.where(pd.notnull(df), None)
+        
+        # Try to find patient by ID or name
+        patient = None
+        
+        # Find ID column (could be named 'id', 'patient_id', 'mrn', etc.)
+        id_column = None
+        for col in ['id', 'patient_id', 'mrn', 'patient_id']:
+            if col in df.columns:
+                id_column = col
+                break
+        
+        # Find name column (could be named 'name', 'patient_name', etc.)
+        name_column = None
+        for col in ['name', 'patient_name', 'first_name', 'last_name']:
+            if col in df.columns:
+                name_column = col
+                break
+        
+        # Search by ID if provided
+        if patient_id and id_column:
+            patient_df = df[df[id_column].astype(str).str.lower() == patient_id.lower()]
+            if not patient_df.empty:
+                patient = patient_df.iloc[0].to_dict()
+        
+        # Search by name if not found by ID
+        if not patient and patient_name and name_column:
+            patient_df = df[df[name_column].astype(str).str.lower().str.contains(patient_name.lower(), na=False)]
+            if not patient_df.empty:
+                patient = patient_df.iloc[0].to_dict()
+        
+        if patient:
+            return jsonify({'patient': patient})
+        else:
+            return jsonify({'error': 'Patient not found'}), 404
+    
+    except Exception as e:
+        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
 # === Entry Point ===
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

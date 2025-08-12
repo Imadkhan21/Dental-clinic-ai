@@ -4,6 +4,7 @@
     <title>Dental Chatbot</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         /* Additional CSS for stop button */
@@ -35,6 +36,270 @@
         .bubble.bot strong { color: #0066cc; }
         .typing-indicator .dot { display:inline-block; width:6px; height:6px; background:#999; border-radius:50%; margin:0 2px; animation: blink 1s infinite; }
         @keyframes blink { 0% {opacity:0.2} 50% {opacity:1} 100% {opacity:0.2} }
+        
+        /* Chart Modal Styles */
+        .chart-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .chart-container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+            background-color: #f1f1f1;
+        }
+        
+        .tab.active {
+            background-color: white;
+            border-color: #ddd;
+            border-bottom-color: white;
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .chart-controls, .query-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .chart-controls select, .chart-controls button, 
+        .query-controls select, .query-controls button, .query-controls input {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background-color: white;
+            cursor: pointer;
+        }
+        
+        .chart-controls button, .query-controls button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            transition: background-color 0.3s;
+        }
+        
+        .chart-controls button:hover, .query-controls button:hover {
+            background-color: #45a049;
+        }
+        
+        .close-chart {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        
+        .close-chart:hover {
+            color: #000;
+        }
+        
+        #chartCanvas, #queryChartCanvas {
+            max-height: 500px;
+        }
+        
+        .chart-info, .query-info {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .chart-error, .query-error {
+            color: #ff4d4d;
+            padding: 10px;
+            border-radius: 6px;
+            background-color: #ffe6e6;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .debug-info {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 100px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 8px;
+            border-radius: 4px;
+            display: none;
+        }
+        
+        .backend-fix-note {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        /* User-friendly query styles */
+        .query-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .query-card {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #e9ecef;
+        }
+        
+        .query-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .query-card.active {
+            background-color: #e3f2fd;
+            border-color: #2196F3;
+        }
+        
+        .query-card-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #2196F3;
+        }
+        
+        .query-card-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
+        .query-card-desc {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .query-form {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .form-row .form-group {
+            flex: 1;
+        }
+        
+        .patient-details {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .patient-details h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .patient-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        
+        .patient-info-item {
+            background-color: white;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .patient-info-label {
+            font-weight: bold;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .patient-info-value {
+            margin-top: 5px;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -43,7 +308,6 @@
         <h2>Dental Chatbot </h2>
         <span class="status"><i class="fa fa-circle"></i> Online</span>
     </div>
-
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <div class="flash-container">
@@ -55,7 +319,6 @@
       </div>
     {% endif %}
     {% endwith %}
-
     <div style="display: flex; justify-content: flex-end; padding: 10px;">
         <!-- Left side: CSV Upload (Hidden) -->
         <form method="POST" enctype="multipart/form-data" action="/upload" class="upload-form" style="display: none; flex-direction: column; align-items: flex-start;">
@@ -67,19 +330,19 @@
             <span id="fileName" style="font-size: 12px; margin-top: 5px; color: #666;"></span>
             <span style="font-size: 12px;font-weight: bold ; color: #666; margin-top: 5px;">Upload CSV file</span>
         </form>
-
-        <!-- Right side: Clear & Speak Toggle -->
+        <!-- Right side: Clear, Speak Toggle & Chart Button -->
         <div style="display: flex; gap: 10px; align-items: center;">
             <button type="button" id="clearChatBtn" title="Clear Chat" style="background-color: #f0f0f0; border: 1px solid #ccc; color: #333; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.3s;">
               <i class="fa fa-broom"></i>
             </button>
-
             <button type="button" id="speakToggle" class="off" title="Toggle speak" style="background-color: #e0e0e0; border: 1px solid #ccc; color: #333; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.3s;">
               🔇
             </button>
+            <button type="button" id="showChartBtn" title="Show Data" style="background-color: #4CAF50; border: none; color: white; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.3s;">
+              <i class="fa fa-chart-bar"></i> Data
+            </button>
         </div>
     </div>
-
     <div class="chat-box" id="chatHistory">
         {% if history %}
             {% for message, response in history %}
@@ -100,12 +363,96 @@
             </div>
         {% endif %}
     </div>
-
     <form id="chatForm" class="message-form">
         <input type="text" id="messageInput" name="message" placeholder="Ask about Dental data ..." required>
         <button type="submit" title="Send"><i class="fa fa-paper-plane"></i></button>
         <button type="button" id="micBtn" title="Speak"><i class="fa fa-microphone"></i></button>
     </form>
+</div>
+
+<!-- Chart Modal -->
+<div id="chartModal" class="chart-modal">
+    <div class="chart-container">
+        <span class="close-chart">&times;</span>
+        <div class="chart-header">
+            <h3>Data Visualization</h3>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="charts">Overview Charts</div>
+            <div class="tab" data-tab="queries">Data Explorer</div>
+        </div>
+        
+        <!-- Charts Tab Content -->
+        <div id="charts" class="tab-content active">
+            <div class="chart-controls">
+                <select id="chartType">
+                    <option value="bar">Bar Chart</option>
+                    <option value="pie">Pie Chart</option>
+                    <option value="line">Line Chart</option>
+                    <option value="doughnut">Doughnut Chart</option>
+                </select>
+                <select id="timeRange">
+                    <option value="7">Last 7 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                    <option value="90">Last 90 Days</option>
+                    <option value="365">Last Year</option>
+                </select>
+                <button id="generateChartBtn">Generate Chart</button>
+            </div>
+            <div class="chart-error" id="chartError"></div>
+            <div class="backend-fix-note" id="backendFixNote">
+                <strong>Backend Error:</strong> The server is missing required imports. Please add <code>from datetime import datetime, timedelta</code> to the top of your app.py file.
+            </div>
+            <div class="debug-info" id="debugInfo"></div>
+            <canvas id="chartCanvas"></canvas>
+            <div class="chart-info" id="chartInfo"></div>
+        </div>
+        
+        <!-- Queries Tab Content -->
+        <div id="queries" class="tab-content">
+            <div class="query-cards">
+                <div class="query-card" data-query="patients_by_days">
+                    <div class="query-card-icon"><i class="fa fa-calendar-alt"></i></div>
+                    <div class="query-card-title">Patients by Time Period</div>
+                    <div class="query-card-desc">See how many patients visited in a specific time period</div>
+                </div>
+                <div class="query-card" data-query="patients_by_location">
+                    <div class="query-card-icon"><i class="fa fa-map-marker-alt"></i></div>
+                    <div class="query-card-title">Patients by Location</div>
+                    <div class="query-card-desc">Find out where your patients come from</div>
+                </div>
+                <div class="query-card" data-query="patients_by_treatment">
+                    <div class="query-card-icon"><i class="fa fa-tooth"></i></div>
+                    <div class="query-card-title">Patients by Treatment</div>
+                    <div class="query-card-desc">See which treatments are most popular</div>
+                </div>
+                <div class="query-card" data-query="find_patient">
+                    <div class="query-card-icon"><i class="fa fa-user"></i></div>
+                    <div class="query-card-title">Find a Patient</div>
+                    <div class="query-card-desc">Search for a specific patient by ID or name</div>
+                </div>
+            </div>
+            
+            <div class="query-form" id="queryForm" style="display: none;">
+                <!-- Form will be populated dynamically based on selected query -->
+            </div>
+            
+            <div class="query-error" id="queryError"></div>
+            <div class="debug-info" id="queryDebugInfo"></div>
+            <canvas id="queryChartCanvas" style="max-height: 500px; display: none;"></canvas>
+            
+            <div class="patient-details" id="patientDetails" style="display: none;">
+                <h4>Patient Details</h4>
+                <div class="patient-info-grid" id="patientInfoGrid">
+                    <!-- Patient details will be populated here -->
+                </div>
+            </div>
+            
+            <div class="query-info" id="queryInfo"></div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -116,12 +463,592 @@ const messageInput = document.getElementById("messageInput");
 const micBtn = document.getElementById("micBtn");
 const clearChatBtn = document.getElementById("clearChatBtn");
 const speakToggle = document.getElementById("speakToggle");
+const showChartBtn = document.getElementById("showChartBtn");
+const chartModal = document.getElementById("chartModal");
+const closeChart = document.querySelector(".close-chart");
+const generateChartBtn = document.getElementById("generateChartBtn");
+const chartType = document.getElementById("chartType");
+const timeRange = document.getElementById("timeRange");
+const chartCanvas = document.getElementById("chartCanvas");
+const queryChartCanvas = document.getElementById("queryChartCanvas");
+const chartError = document.getElementById("chartError");
+const queryError = document.getElementById("queryError");
+const chartInfo = document.getElementById("chartInfo");
+const queryInfo = document.getElementById("queryInfo");
+const debugInfo = document.getElementById("debugInfo");
+const queryDebugInfo = document.getElementById("queryDebugInfo");
+const backendFixNote = document.getElementById("backendFixNote");
+const queryCards = document.querySelectorAll('.query-card');
+const queryForm = document.getElementById("queryForm");
+const patientDetails = document.getElementById("patientDetails");
+const patientInfoGrid = document.getElementById("patientInfoGrid");
+
+// Tab elements
+const tabs = document.querySelectorAll('.tab');
+const tabContents = document.querySelectorAll('.tab-content');
+
+let currentChart = null;
+let queryChart = null;
+let selectedQueryType = null;
 
 let speakEnabled = false;  // speaking OFF by default as you wanted
 let isListening = false;   // track if voice recognition is active
 
+/* ====== Initialize Event Listeners ====== */
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up tab event listeners
+    tabs.forEach(tab => {
+        tab.addEventListener('click', handleTabClick);
+    });
+    
+    // Set up query card event listeners
+    queryCards.forEach(card => {
+        card.addEventListener('click', handleQueryCardClick);
+    });
+    
+    // Set up other event listeners
+    showChartBtn.addEventListener("click", handleShowChartClick);
+    closeChart.addEventListener("click", handleCloseChartClick);
+    generateChartBtn.addEventListener("click", generateChart);
+    clearChatBtn.addEventListener("click", handleClearChatClick);
+    speakToggle.addEventListener("click", handleSpeakToggleClick);
+    chatForm.addEventListener("submit", handleChatFormSubmit);
+    
+    // Set up voice recognition if available
+    setupVoiceRecognition();
+    
+    // Set up file input change listener
+    document.getElementById("fileUpload").addEventListener("change", handleFileUploadChange);
+});
+
+/* ====== Tab Functions ====== */
+function handleTabClick() {
+    // Remove active class from all tabs and contents
+    tabs.forEach(t => t.classList.remove('active'));
+    tabContents.forEach(tc => tc.classList.remove('active'));
+    
+    // Add active class to clicked tab and corresponding content
+    this.classList.add('active');
+    const tabId = this.getAttribute('data-tab');
+    document.getElementById(tabId).classList.add('active');
+    
+    // Load data when switching to tabs
+    if (tabId === 'charts' && !currentChart) {
+        generateChart();
+    }
+}
+
+/* ====== Query Card Selection ====== */
+function handleQueryCardClick() {
+    // Remove active class from all cards
+    queryCards.forEach(c => c.classList.remove('active'));
+    
+    // Add active class to clicked card
+    this.classList.add('active');
+    
+    // Get the query type
+    selectedQueryType = this.getAttribute('data-query');
+    
+    // Show the appropriate form
+    showQueryForm(selectedQueryType);
+}
+
+/* ====== Show Query Form ====== */
+function showQueryForm(queryType) {
+    // Reset form and results
+    queryForm.innerHTML = '';
+    queryChartCanvas.style.display = 'none';
+    patientDetails.style.display = 'none';
+    queryError.style.display = 'none';
+    queryDebugInfo.style.display = 'none';
+    
+    let formHTML = '';
+    
+    switch (queryType) {
+        case 'patients_by_days':
+            formHTML = `
+                <h3>Patients by Time Period</h3>
+                <div class="form-group">
+                    <label for="queryDays">Time Period</label>
+                    <select id="queryDays">
+                        <option value="7">Last 7 Days</option>
+                        <option value="15">Last 15 Days</option>
+                        <option value="30" selected>Last 30 Days</option>
+                        <option value="90">Last 90 Days</option>
+                        <option value="365">Last Year</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="queryChartType">Chart Type</label>
+                    <select id="queryChartType">
+                        <option value="bar">Bar Chart</option>
+                        <option value="line">Line Chart</option>
+                        <option value="pie">Pie Chart</option>
+                        <option value="doughnut">Doughnut Chart</option>
+                    </select>
+                </div>
+                <button id="runQueryBtn" class="query-controls button">Show Results</button>
+            `;
+            break;
+            
+        case 'patients_by_location':
+            formHTML = `
+                <h3>Patients by Location</h3>
+                <div class="form-group">
+                    <label for="queryLocation">Location (leave empty to see all locations)</label>
+                    <input type="text" id="queryLocation" placeholder="e.g., Islamabad, Rawalpindi">
+                </div>
+                <div class="form-group">
+                    <label for="queryChartType">Chart Type</label>
+                    <select id="queryChartType">
+                        <option value="bar">Bar Chart</option>
+                        <option value="pie">Pie Chart</option>
+                        <option value="doughnut">Doughnut Chart</option>
+                    </select>
+                </div>
+                <button id="runQueryBtn" class="query-controls button">Show Results</button>
+            `;
+            break;
+            
+        case 'patients_by_treatment':
+            formHTML = `
+                <h3>Patients by Treatment</h3>
+                <div class="form-group">
+                    <label for="queryTreatment">Treatment Type (leave empty to see all treatments)</label>
+                    <input type="text" id="queryTreatment" placeholder="e.g., Cleaning, Filling, Extraction">
+                </div>
+                <div class="form-group">
+                    <label for="queryChartType">Chart Type</label>
+                    <select id="queryChartType">
+                        <option value="bar">Bar Chart</option>
+                        <option value="pie">Pie Chart</option>
+                        <option value="doughnut">Doughnut Chart</option>
+                    </select>
+                </div>
+                <button id="runQueryBtn" class="query-controls button">Show Results</button>
+            `;
+            break;
+            
+        case 'find_patient':
+            formHTML = `
+                <h3>Find a Patient</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="patientId">Patient ID / MRN</label>
+                        <input type="text" id="patientId" placeholder="Enter patient ID">
+                    </div>
+                    <div class="form-group">
+                        <label for="patientName">Patient Name</label>
+                        <input type="text" id="patientName" placeholder="Enter patient name">
+                    </div>
+                </div>
+                <button id="findPatientBtn" class="query-controls button">Find Patient</button>
+            `;
+            break;
+    }
+    
+    queryForm.innerHTML = formHTML;
+    queryForm.style.display = 'block';
+    
+    // Add event listener to the run button
+    const runBtn = queryForm.querySelector('button');
+    if (runBtn) {
+        if (queryType === 'find_patient') {
+            runBtn.addEventListener('click', findPatient);
+        } else {
+            runBtn.addEventListener('click', executeQuery);
+        }
+    }
+}
+
+/* ====== Execute Query ====== */
+async function executeQuery() {
+    queryError.style.display = "none";
+    queryDebugInfo.style.display = "none";
+    queryInfo.textContent = "Running query...";
+    queryChartCanvas.style.display = "none";
+    patientDetails.style.display = "none";
+    
+    try {
+        // Build query parameters based on query type
+        const params = {};
+        switch (selectedQueryType) {
+            case 'patients_by_days':
+                params.days = parseInt(document.getElementById('queryDays').value) || 30;
+                break;
+            case 'patients_by_location':
+                params.location = document.getElementById('queryLocation').value || '';
+                break;
+            case 'patients_by_treatment':
+                params.treatment = document.getElementById('queryTreatment').value || '';
+                break;
+        }
+        
+        const response = await fetch("/get_query_data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query_type: selectedQueryType,
+                params: params
+            })
+        });
+        
+        if (!response.ok) {
+            let errorText = `Server returned ${response.status} ${response.statusText}`;
+            try {
+                const errorData = await response.text();
+                queryDebugInfo.textContent = `Server response: ${errorData}`;
+                queryDebugInfo.style.display = "block";
+            } catch (e) {
+                queryDebugInfo.textContent = `Could not read error response: ${e.message}`;
+                queryDebugInfo.style.display = "block";
+            }
+            throw new Error(errorText);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Destroy previous query chart if exists
+        if (queryChart) {
+            queryChart.destroy();
+        }
+        
+        // Show the canvas
+        queryChartCanvas.style.display = "block";
+        
+        // Get chart type
+        const chartType = document.getElementById('queryChartType').value;
+        
+        // Create new chart
+        const ctx = queryChartCanvas.getContext('2d');
+        queryChart = new Chart(ctx, {
+            type: chartType,
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: 'Count',
+                    data: data.values,
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.7)',
+                        'rgba(54, 162, 235, 0.7)',
+                        'rgba(255, 206, 86, 0.7)',
+                        'rgba(75, 192, 192, 0.7)',
+                        'rgba(153, 102, 255, 0.7)',
+                        'rgba(255, 159, 64, 0.7)',
+                        'rgba(199, 199, 199, 0.7)',
+                        'rgba(83, 102, 255, 0.7)',
+                        'rgba(40, 159, 64, 0.7)',
+                        'rgba(210, 99, 132, 0.7)',
+                        'rgba(20, 162, 235, 0.7)'
+                    ],
+                    borderColor: [
+                        'rgba(255, 99, 132, 1)',
+                        'rgba(54, 162, 235, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(153, 102, 255, 1)',
+                        'rgba(255, 159, 64, 1)',
+                        'rgba(199, 199, 199, 1)',
+                        'rgba(83, 102, 255, 1)',
+                        'rgba(40, 159, 64, 1)',
+                        'rgba(210, 99, 132, 1)',
+                        'rgba(20, 162, 235, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: chartType === 'pie' || chartType === 'doughnut' ? 'right' : 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: data.title
+                    }
+                }
+            }
+        });
+        
+        // Update info
+        if (data.total_patients !== undefined) {
+            queryInfo.textContent = `Total patients: ${data.total_patients}`;
+        } else {
+            queryInfo.textContent = "Query executed successfully";
+        }
+        
+    } catch (error) {
+        queryError.textContent = `Error: ${error.message}`;
+        queryError.style.display = "block";
+        queryInfo.textContent = "";
+        console.error("Query execution error:", error);
+    }
+}
+
+/* ====== Find Patient ====== */
+async function findPatient() {
+    queryError.style.display = "none";
+    queryDebugInfo.style.display = "none";
+    queryInfo.textContent = "Searching for patient...";
+    queryChartCanvas.style.display = "none";
+    patientDetails.style.display = "none";
+    
+    try {
+        const patientId = document.getElementById('patientId').value.trim();
+        const patientName = document.getElementById('patientName').value.trim();
+        
+        if (!patientId && !patientName) {
+            queryError.textContent = "Please enter either a patient ID or name";
+            queryError.style.display = "block";
+            return;
+        }
+        
+        const response = await fetch("/find_patient", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                patient_id: patientId,
+                patient_name: patientName
+            })
+        });
+        
+        if (!response.ok) {
+            let errorText = `Server returned ${response.status} ${response.statusText}`;
+            try {
+                const errorData = await response.text();
+                queryDebugInfo.textContent = `Server response: ${errorData}`;
+                queryDebugInfo.style.display = "block";
+            } catch (e) {
+                queryDebugInfo.textContent = `Could not read error response: ${e.message}`;
+                queryDebugInfo.style.display = "block";
+            }
+            throw new Error(errorText);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        if (!data.patient) {
+            queryError.textContent = "No patient found with the provided information";
+            queryError.style.display = "block";
+            return;
+        }
+        
+        // Display patient details
+        displayPatientDetails(data.patient);
+        
+    } catch (error) {
+        queryError.textContent = `Error: ${error.message}`;
+        queryError.style.display = "block";
+        queryInfo.textContent = "";
+        console.error("Patient search error:", error);
+    }
+}
+
+/* ====== Display Patient Details ====== */
+function displayPatientDetails(patient) {
+    // Clear previous details
+    patientInfoGrid.innerHTML = '';
+    
+    // Create patient info items
+    Object.keys(patient).forEach(key => {
+        if (patient[key] !== null && patient[key] !== undefined) {
+            const item = document.createElement('div');
+            item.className = 'patient-info-item';
+            
+            const label = document.createElement('div');
+            label.className = 'patient-info-label';
+            label.textContent = formatLabel(key);
+            
+            const value = document.createElement('div');
+            value.className = 'patient-info-value';
+            value.textContent = patient[key];
+            
+            item.appendChild(label);
+            item.appendChild(value);
+            patientInfoGrid.appendChild(item);
+        }
+    });
+    
+    // Show patient details section
+    patientDetails.style.display = 'block';
+    queryInfo.textContent = "Patient found successfully";
+}
+
+/* ====== Format Label ====== */
+function formatLabel(key) {
+    // Convert snake_case to Title Case
+    return key.replace(/_/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+}
+
+/* ====== Chart Modal Functions ====== */
+function handleShowChartClick() {
+    chartModal.style.display = "flex";
+    // Generate initial chart if on charts tab
+    if (document.querySelector('.tab[data-tab="charts"]').classList.contains('active')) {
+        generateChart();
+    }
+}
+
+function handleCloseChartClick() {
+    chartModal.style.display = "none";
+    if (currentChart) {
+        currentChart.destroy();
+        currentChart = null;
+    }
+    if (queryChart) {
+        queryChart.destroy();
+        queryChart = null;
+    }
+}
+
+window.addEventListener("click", (event) => {
+    if (event.target === chartModal) {
+        chartModal.style.display = "none";
+        if (currentChart) {
+            currentChart.destroy();
+            currentChart = null;
+        }
+        if (queryChart) {
+            queryChart.destroy();
+            queryChart = null;
+        }
+    }
+});
+
+async function generateChart() {
+    chartError.style.display = "none";
+    debugInfo.style.display = "none";
+    backendFixNote.style.display = "none";
+    chartInfo.textContent = "Generating chart...";
+    
+    try {
+        const response = await fetch("/get_chart_data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                days: parseInt(timeRange.value),
+                chart_type: chartType.value
+            })
+        });
+        
+        // Check if response is ok
+        if (!response.ok) {
+            let errorText = `Server returned ${response.status} ${response.statusText}`;
+            try {
+                // Try to get more error details from response
+                const errorData = await response.text();
+                debugInfo.textContent = `Server response: ${errorData}`;
+                debugInfo.style.display = "block";
+                
+                // Check for specific datetime import error
+                if (errorData.includes("NameError: name 'datetime' is not defined")) {
+                    backendFixNote.style.display = "block";
+                    chartError.textContent = "Backend error: Missing datetime import. Please fix the backend code as shown below.";
+                } else {
+                    chartError.textContent = errorText;
+                }
+            } catch (e) {
+                debugInfo.textContent = `Could not read error response: ${e.message}`;
+                debugInfo.style.display = "block";
+                chartError.textContent = errorText;
+            }
+            throw new Error(errorText);
+        }
+        
+        // Check content type to ensure we're getting JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            let responseText = await response.text();
+            debugInfo.textContent = `Expected JSON but got ${contentType}. Response: ${responseText.substring(0, 500)}...`;
+            debugInfo.style.display = "block";
+            throw new Error("Server returned non-JSON response");
+        }
+        
+        const data = await response.json();
+        
+        // Destroy previous chart if exists
+        if (currentChart) {
+            currentChart.destroy();
+        }
+        
+        // Create new chart
+        const ctx = chartCanvas.getContext('2d');
+        currentChart = new Chart(ctx, {
+            type: chartType.value,
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: 'Count',
+                    data: data.values,
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.7)',
+                        'rgba(54, 162, 235, 0.7)',
+                        'rgba(255, 206, 86, 0.7)',
+                        'rgba(75, 192, 192, 0.7)',
+                        'rgba(153, 102, 255, 0.7)',
+                        'rgba(255, 159, 64, 0.7)',
+                        'rgba(199, 199, 199, 0.7)',
+                        'rgba(83, 102, 255, 0.7)',
+                        'rgba(40, 159, 64, 0.7)',
+                        'rgba(210, 99, 132, 0.7)',
+                        'rgba(20, 162, 235, 0.7)'
+                    ],
+                    borderColor: [
+                        'rgba(255, 99, 132, 1)',
+                        'rgba(54, 162, 235, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(153, 102, 255, 1)',
+                        'rgba(255, 159, 64, 1)',
+                        'rgba(199, 199, 199, 1)',
+                        'rgba(83, 102, 255, 1)',
+                        'rgba(40, 159, 64, 1)',
+                        'rgba(210, 99, 132, 1)',
+                        'rgba(20, 162, 235, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: chartType.value === 'pie' || chartType.value === 'doughnut' ? 'right' : 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: `Dental Data - Last ${timeRange.value} Days`
+                    }
+                }
+            }
+        });
+        
+        // Update chart info
+        if (data.total_records && data.date_range) {
+            chartInfo.textContent = `Showing ${data.total_records} records from ${data.date_range.start} to ${data.date_range.end}`;
+        } else {
+            chartInfo.textContent = "Chart generated successfully";
+        }
+        
+    } catch (error) {
+        chartError.style.display = "block";
+        chartInfo.textContent = "";
+        console.error("Chart generation error:", error);
+    }
+}
+
 /* ====== Speak toggle ====== */
-speakToggle.addEventListener("click", () => {
+function handleSpeakToggleClick() {
     speakEnabled = !speakEnabled;
     if (speakEnabled) {
         speakToggle.textContent = "🔊";
@@ -133,7 +1060,7 @@ speakToggle.addEventListener("click", () => {
         speakToggle.classList.add("off");
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     }
-});
+}
 
 /* ====== Helper to clean table text for speaking ====== */
 function getCleanTextFromTable(tableElem) {
@@ -147,12 +1074,9 @@ function getCleanTextFromTable(tableElem) {
 /* ====== Speak last bot message ====== */
 function speakLastBotMessage() {
     if (!speakEnabled || !('speechSynthesis' in window)) return;
-
     const lastBotBubble = chatHistory.querySelector(".chat-entry.bot-msg:last-child .bubble.bot");
     if (!lastBotBubble) return;
-
     let speakText = "";
-
     const tableElem = lastBotBubble.querySelector('table');
     if (tableElem) {
         speakText = getCleanTextFromTable(tableElem);
@@ -162,7 +1086,6 @@ function speakLastBotMessage() {
             speakText = speakText.substring(4).trim();
         }
     }
-
     if (speakText) {
         const utterance = new SpeechSynthesisUtterance(speakText);
         utterance.lang = 'en-US';
@@ -171,11 +1094,10 @@ function speakLastBotMessage() {
 }
 
 /* ====== Submit handler (main) ====== */
-chatForm.addEventListener("submit", async function (e) {
+async function handleChatFormSubmit(e) {
     e.preventDefault();
     const message = messageInput.value.trim();
     if (!message) return;
-
     // Append user message
     chatHistory.insertAdjacentHTML("beforeend", `
         <div class="chat-entry user-msg">
@@ -184,7 +1106,6 @@ chatForm.addEventListener("submit", async function (e) {
     `);
     chatHistory.scrollTop = chatHistory.scrollHeight;
     messageInput.value = "";
-
     // Create typing indicator + hidden stop button
     const typingElement = document.createElement("div");
     typingElement.classList.add("chat-entry", "bot-msg", "typing-indicator");
@@ -198,14 +1119,11 @@ chatForm.addEventListener("submit", async function (e) {
     `;
     chatHistory.appendChild(typingElement);
     chatHistory.scrollTop = chatHistory.scrollHeight;
-
     const stopBtn = typingElement.querySelector('.stop-btn');
-
     // Show stop button after 1s
     const stopButtonTimer = setTimeout(() => {
         if (stopBtn) stopBtn.classList.add('visible');
     }, 1000);
-
     // Stop button handler
     stopBtn.addEventListener("click", async () => {
         try {
@@ -224,7 +1142,6 @@ chatForm.addEventListener("submit", async function (e) {
             console.error("Error stopping execution:", err);
         }
     });
-
     // Send message to server
     try {
         const res = await fetch("/ask", {
@@ -232,22 +1149,17 @@ chatForm.addEventListener("submit", async function (e) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message })
         });
-
         // stop button visibility timer cleared
         clearTimeout(stopButtonTimer);
-
         // parse response safely
         const data = await res.json();
-
         // If server explicitly signals stopped, do not process response
         if (data && data.status === "stopped") {
             if (typingElement.parentNode) typingElement.remove();
             return;
         }
-
         // Remove typing indicator (if still present)
         if (typingElement.parentNode) typingElement.remove();
-
         // Only render if there is a real response
         if (data && data.response) {
             // table vs plain text rendering
@@ -272,15 +1184,12 @@ chatForm.addEventListener("submit", async function (e) {
                 `);
             }
             chatHistory.scrollTop = chatHistory.scrollHeight;
-
             // Speak last bot message if enabled
             speakLastBotMessage();
         }
-
     } catch (error) {
         clearTimeout(stopButtonTimer);
         if (typingElement.parentNode) typingElement.remove();
-
         chatHistory.insertAdjacentHTML("beforeend", `
             <div class="chat-entry bot-msg">
                 <div class="bot-controls">
@@ -291,67 +1200,62 @@ chatForm.addEventListener("submit", async function (e) {
         chatHistory.scrollTop = chatHistory.scrollHeight;
         console.error("Send error:", error);
     }
-});
+}
 
 /* ====== Voice recognition (webkitSpeechRecognition fallback) ====== */
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.continuous = false;
-
-    micBtn.addEventListener("click", () => {
-        if (!isListening) {
-            recognition.start();
-            isListening = true;
-            micBtn.innerHTML = '<i class="fa fa-stop"></i>';
-            micBtn.classList.add('listening');
-            micBtn.title = "Stop Listening";
-        } else {
-            recognition.stop();
+function setupVoiceRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.continuous = false;
+        micBtn.addEventListener("click", () => {
+            if (!isListening) {
+                recognition.start();
+                isListening = true;
+                micBtn.innerHTML = '<i class="fa fa-stop"></i>';
+                micBtn.classList.add('listening');
+                micBtn.title = "Stop Listening";
+            } else {
+                recognition.stop();
+                resetMicButton();
+            }
+        });
+        recognition.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            messageInput.value = transcript;
             resetMicButton();
+            // Auto submit form on voice result
+            chatForm.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
+        };
+        recognition.onerror = function(event) {
+            console.error("Speech recognition error", event.error);
+            resetMicButton();
+        };
+        recognition.onend = function() {
+            resetMicButton();
+        };
+        function resetMicButton() {
+            isListening = false;
+            micBtn.innerHTML = '<i class="fa fa-microphone"></i>';
+            micBtn.classList.remove('listening');
+            micBtn.title = "Speak";
         }
-    });
-
-    recognition.onresult = function(event) {
-        const transcript = event.results[0][0].transcript;
-        messageInput.value = transcript;
-        resetMicButton();
-
-        // Auto submit form on voice result
-        chatForm.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
-    };
-
-    recognition.onerror = function(event) {
-        console.error("Speech recognition error", event.error);
-        resetMicButton();
-    };
-
-    recognition.onend = function() {
-        resetMicButton();
-    };
-
-    function resetMicButton() {
-        isListening = false;
-        micBtn.innerHTML = '<i class="fa fa-microphone"></i>';
-        micBtn.classList.remove('listening');
-        micBtn.title = "Speak";
+    } else {
+        micBtn.disabled = true;
+        micBtn.title = "Voice not supported";
     }
-
-} else {
-    micBtn.disabled = true;
-    micBtn.title = "Voice not supported";
 }
 
 /* ====== File input display ====== */
-document.getElementById("fileUpload").addEventListener("change", function () {
+function handleFileUploadChange() {
     const file = this.files[0];
     const fileName = file ? file.name : "No file chosen";
     document.getElementById("fileName").textContent = fileName;
-});
+}
 
 /* ====== Clear chat button ====== */
-clearChatBtn.addEventListener("click", async () => {
+async function handleClearChatClick() {
     const res = await fetch("/clear_chat", { method: "POST" });
     if (res.ok) {
         chatHistory.innerHTML = `
@@ -366,8 +1270,7 @@ clearChatBtn.addEventListener("click", async () => {
     } else {
         alert("Failed to clear chat history.");
     }
-});
+}
 </script>
-
 </body>
 </html>
