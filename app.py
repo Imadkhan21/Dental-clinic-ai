@@ -8,6 +8,7 @@ import io
 import base64
 import json
 import matplotlib.pyplot as plt
+import uuid
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from werkzeug.utils import secure_filename
 from chatbot_model import get_chat_response  # Make sure chatbot_model.py exists
@@ -35,8 +36,9 @@ def init_db():
                         (id INTEGER PRIMARY KEY, message TEXT, response TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS current_file 
                         (id INTEGER PRIMARY KEY, filename TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS content_links 
+                        (id TEXT PRIMARY KEY, content_type TEXT, content_data TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         conn.commit()
-
 init_db()
 
 # === Cache & Lock ===
@@ -106,15 +108,97 @@ try:
 except Exception as e:
     print(f"[INIT] Bootstrap error: {e}")
 
-# === Helper function to clean HTML ===
-def clean_html(html_content):
-    """Remove extra whitespace and empty lines from HTML content"""
-    # Remove leading/trailing whitespace from each line
-    lines = [line.strip() for line in html_content.split('\n')]
-    # Remove empty lines
-    lines = [line for line in lines if line]
-    # Join lines with single newlines
-    return '\n'.join(lines)
+# === Helper function to parse HTML table to JSON ===
+def parse_table_to_json(html_content):
+    """Parse HTML table to structured JSON data"""
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        table = soup.find('table')
+        
+        if not table:
+            return None
+            
+        # Extract headers
+        headers = []
+        header_row = table.find('tr')
+        if header_row:
+            for th in header_row.find_all(['th', 'td']):
+                headers.append(th.get_text(strip=True))
+        
+        # Extract rows
+        rows = []
+        for row in table.find_all('tr')[1:]:  # Skip header row
+            cells = []
+            for cell in row.find_all(['td', 'th']):
+                cells.append(cell.get_text(strip=True))
+            if cells:
+                rows.append(cells)
+        
+        return {
+            "headers": headers,
+            "rows": rows
+        }
+    except Exception as e:
+        print(f"[ERROR] Error parsing table: {str(e)}")
+        return None
+
+# === Helper function to generate table HTML ===
+def generate_table_html(headers, rows):
+    """Generate HTML table from headers and rows"""
+    html = "<table border='1' style='border-collapse: collapse; width: 100%;'>\n"
+    
+    # Add headers
+    html += "<tr style='background-color: #f2f2f2;'>\n"
+    for header in headers:
+        html += f"<th style='padding: 8px; text-align: left;'>{header}</th>\n"
+    html += "</tr>\n"
+    
+    # Add rows
+    for i, row in enumerate(rows):
+        bg_color = "#f9f9f9" if i % 2 == 0 else "white"
+        html += f"<tr style='background-color: {bg_color};'>\n"
+        for cell in row:
+            html += f"<td style='padding: 8px;'>{cell}</td>\n"
+        html += "</tr>\n"
+    
+    html += "</table>"
+    return html
+
+# === Helper function to generate chart HTML ===
+def generate_chart_html(chart_data):
+    """Generate HTML for chart from chart data"""
+    try:
+        labels = chart_data.get("labels", [])
+        values = chart_data.get("values", [])
+        title = chart_data.get("title", "Chart")
+        
+        # Generate chart
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.bar(labels, values)
+        ax.set_title(title)
+        ax.set_xlabel("Category")
+        ax.set_ylabel("Value")
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        # Convert to base64
+        img = io.BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        plot_url = base64.b64encode(img.getvalue()).decode()
+        plt.close(fig)
+        
+        # Create HTML
+        html = f"""
+        <div style="text-align: center; margin: 20px;">
+            <h2>{title}</h2>
+            <img src="data:image/png;base64,{plot_url}" alt="{title}" style="max-width: 100%; height: auto;">
+        </div>
+        """
+        return html
+    except Exception as e:
+        print(f"[ERROR] Error generating chart HTML: {str(e)}")
+        return f"<p>Error generating chart: {str(e)}</p>"
 
 # === Routes ===
 @app.route('/')
@@ -126,6 +210,68 @@ def index():
         history = cursor.fetchall()
     return render_template('index.html', history=history, filename=current_file)
 
+@app.route('/view/<content_id>')
+def view_content(content_id):
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT content_type, content_data FROM content_links WHERE id = ?", (content_id,))
+            result = cursor.fetchone()
+        
+        if not result:
+            return "Content not found", 404
+            
+        content_type, content_data = result
+        content_data = json.loads(content_data)
+        
+        if content_type == "table":
+            headers = content_data.get("headers", [])
+            rows = content_data.get("rows", [])
+            table_html = generate_table_html(headers, rows)
+            
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Data Table</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    h1 {{ color: #333; }}
+                </style>
+            </head>
+            <body>
+                <h1>Data Table</h1>
+                {table_html}
+            </body>
+            </html>
+            """
+            
+        elif content_type == "chart":
+            chart_html = generate_chart_html(content_data)
+            
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Chart</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    h1 {{ color: #333; }}
+                </style>
+            </head>
+            <body>
+                <h1>Chart</h1>
+                {chart_html}
+            </body>
+            </html>
+            """
+        else:
+            return "Invalid content type", 400
+            
+    except Exception as e:
+        print(f"[ERROR] Error viewing content: {str(e)}")
+        return f"Error: {str(e)}", 500
+
 @app.route('/ask', methods=['POST'])
 def ask():
     global stop_execution_flag
@@ -135,6 +281,13 @@ def ask():
     try:
         user_input = request.json.get('message')
         print(f"[DEBUG] Received request: {user_input}")
+        
+        # Check if the request is from an API client (like Postman or Flutter)
+        is_api_request = request.headers.get('User-Agent', '').startswith('Postman') or \
+                        request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
+                        request.json.get('api_client', False)
+        
+        print(f"[DEBUG] Is API request: {is_api_request}")
         
         with data_lock:
             df = data_cache
@@ -158,6 +311,12 @@ def ask():
             print(f"[DEBUG] Got response in {time.time() - start_time:.2f}s")
             print(f"[DEBUG] Response length: {len(response)} characters")
             print(f"[DEBUG] Response preview: {response[:200]}...")
+            
+            # Check if response is empty
+            if not response or response.strip() == "":
+                print("[DEBUG] Empty response from get_chat_response")
+                response = "I'm sorry, I couldn't generate a response. Please try a different question."
+                
         except Exception as e:
             print(f"[ERROR] Error in get_chat_response: {str(e)}")
             print(traceback.format_exc())
@@ -178,79 +337,47 @@ def ask():
         
         # Check if the response contains a table
         if "<table" in response:
-            print("[DEBUG] Response contains table, creating HTML template")
+            print("[DEBUG] Response contains table")
             try:
-                # Create HTML template for the table without extra indentation
-                table_template = """<!DOCTYPE html>
-<html>
-<head>
-<title>Patient Data Table</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-body {
-font-family: Arial, sans-serif;
-margin: 0;
-padding: 20px;
-background-color: #f5f5f5;
-}
-.container {
-max-width: 1200px;
-margin: 0 auto;
-background-color: white;
-padding: 20px;
-border-radius: 8px;
-box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-.table-container {
-overflow-x: auto;
-}
-table {
-width: 100%;
-border-collapse: collapse;
-margin-top: 20px;
-}
-th, td {
-border: 1px solid #ddd;
-padding: 12px;
-text-align: left;
-}
-th {
-background-color: #f2f2f2;
-font-weight: bold;
-}
-tr:nth-child(even) {
-background-color: #f9f9f9;
-}
-tr:hover {
-background-color: #f1f1f1;
-}
-</style>
-</head>
-<body>
-<div class="container">
-<div class="table-container">
-{response}
-</div>
-</div>
-</body>
-</html>"""
-                
-                # Format the template with the response and clean up extra spaces
-                formatted_template = table_template.format(response=response)
-                clean_template = clean_html(formatted_template)
-                print(f"[DEBUG] Created table template (length: {len(clean_template)})")
-                
-                # Return only the cleaned HTML template in the response field
-                return jsonify({'response': clean_template})
+                # Parse the HTML table to structured JSON
+                structured_data = parse_table_to_json(response)
+                if structured_data:
+                    # Generate a unique ID for this content
+                    content_id = str(uuid.uuid4())
+                    
+                    # Store the content in the database
+                    with sqlite3.connect(DB_FILE) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT INTO content_links (id, content_type, content_data) VALUES (?, ?, ?)",
+                            (content_id, "table", json.dumps(structured_data))
+                        )
+                        conn.commit()
+                    
+                    # Generate the URL
+                    content_url = url_for('view_content', content_id=content_id, _external=True)
+                    print(f"[DEBUG] Generated table URL: {content_url}")
+                    
+                    # If this is an API request, return the link
+                    if is_api_request:
+                        print("[DEBUG] Returning link for API request")
+                        return jsonify({'response': content_url})
+                    else:
+                        # For web interface, return the original HTML
+                        print("[DEBUG] Returning HTML for web interface")
+                        return jsonify({'response': response})
+                else:
+                    print("[DEBUG] Failed to parse table, returning as text")
+                    return jsonify({'response': response})
             except Exception as e:
-                print(f"[ERROR] Error creating table template: {str(e)}")
+                print(f"[ERROR] Error creating table link: {str(e)}")
                 print(traceback.format_exc())
                 # Fall back to the original response
                 return jsonify({'response': response})
         
         # Check if the response contains chart data
         elif "CHART_DATA:" in response:
-            print("[DEBUG] Response contains chart data, creating HTML template")
+            print("[DEBUG] Response contains chart data")
             try:
                 # Extract the JSON part after "CHART_DATA:"
                 chart_str = response.split("CHART_DATA:")[1].strip()
@@ -260,86 +387,32 @@ background-color: #f1f1f1;
                 chart_json = json.loads(chart_str)
                 print(f"[DEBUG] Parsed chart JSON: {chart_json}")
                 
-                labels = chart_json.get("labels", [])
-                values = chart_json.get("values", [])
-                title = chart_json.get("title", "Chart")
+                # Generate a unique ID for this content
+                content_id = str(uuid.uuid4())
                 
-                print(f"[DEBUG] Chart data - Labels: {labels}, Values: {values}, Title: {title}")
+                # Store the content in the database
+                with sqlite3.connect(DB_FILE) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "INSERT INTO content_links (id, content_type, content_data) VALUES (?, ?, ?)",
+                        (content_id, "chart", json.dumps(chart_json))
+                    )
+                    conn.commit()
                 
-                # Generate chart
-                fig, ax = plt.subplots(figsize=(10, 6))
-                ax.bar(labels, values)
-                ax.set_title(title)
-                ax.set_xlabel("Category")
-                ax.set_ylabel("Value")
-                plt.xticks(rotation=45, ha='right')
-                plt.tight_layout()
+                # Generate the URL
+                content_url = url_for('view_content', content_id=content_id, _external=True)
+                print(f"[DEBUG] Generated chart URL: {content_url}")
                 
-                # Convert to base64
-                img = io.BytesIO()
-                plt.savefig(img, format='png')
-                img.seek(0)
-                plot_url = base64.b64encode(img.getvalue()).decode()
-                plt.close(fig)
-                print("[DEBUG] Generated chart image")
-                
-                # Create HTML template for the chart without extra indentation
-                chart_template = """<!DOCTYPE html>
-<html>
-<head>
-<title>{title}</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-body {
-font-family: Arial, sans-serif;
-margin: 0;
-padding: 20px;
-background-color: #f5f5f5;
-}
-.container {
-max-width: 1200px;
-margin: 0 auto;
-background-color: white;
-padding: 20px;
-border-radius: 8px;
-box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-h1 {
-color: #333;
-text-align: center;
-margin-bottom: 20px;
-}
-.chart-container {
-text-align: center;
-margin-top: 20px;
-}
-.chart-container img {
-max-width: 100%;
-height: auto;
-border: 1px solid #ddd;
-border-radius: 4px;
-}
-</style>
-</head>
-<body>
-<div class="container">
-<h1>{title}</h1>
-<div class="chart-container">
-<img src="data:image/png;base64,{plot_url}" alt="{title}">
-</div>
-</div>
-</body>
-</html>"""
-                
-                # Format the template with the title and plot URL and clean up extra spaces
-                formatted_template = chart_template.format(title=title, plot_url=plot_url)
-                clean_template = clean_html(formatted_template)
-                print(f"[DEBUG] Created chart template (length: {len(clean_template)})")
-                
-                # Return only the cleaned HTML template in the response field
-                return jsonify({'response': clean_template})
+                # If this is an API request, return the link
+                if is_api_request:
+                    print("[DEBUG] Returning link for API request")
+                    return jsonify({'response': content_url})
+                else:
+                    # For web interface, return the original HTML
+                    print("[DEBUG] Returning HTML for web interface")
+                    return jsonify({'response': response})
             except Exception as e:
-                print(f"[ERROR] Error creating chart template: {str(e)}")
+                print(f"[ERROR] Error creating chart link: {str(e)}")
                 print(traceback.format_exc())
                 # Fall back to the original response
                 return jsonify({'response': response})
@@ -347,7 +420,7 @@ border-radius: 4px;
         # Regular text response
         else:
             print("[DEBUG] Regular text response")
-            # Return the text response as-is
+            # Return the text response in the response field
             return jsonify({'response': response})
     
     except Exception as e:
@@ -407,5 +480,5 @@ def clear_chat():
 
 # === Entry Point ===
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5004))
+    port = int(os.environ.get('PORT', 5003))
     app.run(host='0.0.0.0', port=port, debug=True)
