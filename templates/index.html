@@ -37,7 +37,19 @@
         .typing-indicator .dot { display:inline-block; width:6px; height:6px; background:#999; border-radius:50%; margin:0 2px; animation: blink 1s infinite; }
         @keyframes blink { 0% {opacity:0.2} 50% {opacity:1} 100% {opacity:0.2} }
     
-            
+        /* CSS for template link */
+        .template-link {
+            color: #0066cc;
+            text-decoration: underline;
+            word-break: break-all;
+            margin-top: 5px;
+            display: inline-block;
+        }
+        
+        .template-link:hover {
+            color: #004499;
+        }
+    
         /* Inline chart styles */
         .inline-chart {
             background-color: #f8f9fa;
@@ -67,7 +79,6 @@
             color: #666;
             text-align: center;
         }
-
     </style>
 </head>
 <body>
@@ -76,7 +87,6 @@
         <h2>Dental Chatbot </h2>
         <span class="status"><i class="fa fa-circle"></i> Online</span>
     </div>
-
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <div class="flash-container">
@@ -88,7 +98,6 @@
       </div>
     {% endif %}
     {% endwith %}
-
     <div style="display: flex; justify-content: flex-end; padding: 10px;">
         <!-- Left side: CSV Upload (Hidden) -->
         <form method="POST" enctype="multipart/form-data" action="/upload" class="upload-form" style="display: none; flex-direction: column; align-items: flex-start;">
@@ -100,19 +109,16 @@
             <span id="fileName" style="font-size: 12px; margin-top: 5px; color: #666;"></span>
             <span style="font-size: 12px;font-weight: bold ; color: #666; margin-top: 5px;">Upload CSV file</span>
         </form>
-
         <!-- Right side: Clear & Speak Toggle -->
         <div style="display: flex; gap: 10px; align-items: center;">
             <button type="button" id="clearChatBtn" title="Clear Chat" style="background-color: #f0f0f0; border: 1px solid #ccc; color: #333; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.3s;">
               <i class="fa fa-broom"></i>
             </button>
-
             <button type="button" id="speakToggle" class="off" title="Toggle speak" style="background-color: #e0e0e0; border: 1px solid #ccc; color: #333; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.3s;">
               🔇
             </button>
         </div>
     </div>
-
     <div class="chat-box" id="chatHistory">
         {% if history %}
             {% for message, response in history %}
@@ -133,14 +139,12 @@
             </div>
         {% endif %}
     </div>
-
     <form id="chatForm" class="message-form">
         <input type="text" id="messageInput" name="message" placeholder="Ask about Dental data ..." required>
         <button type="submit" title="Send"><i class="fa fa-paper-plane"></i></button>
         <button type="button" id="micBtn" title="Speak"><i class="fa fa-microphone"></i></button>
     </form>
 </div>
-
 <script>
 /* ====== ELEMENTS ====== */
 const chatForm = document.getElementById("chatForm");
@@ -149,10 +153,8 @@ const messageInput = document.getElementById("messageInput");
 const micBtn = document.getElementById("micBtn");
 const clearChatBtn = document.getElementById("clearChatBtn");
 const speakToggle = document.getElementById("speakToggle");
-
 let speakEnabled = false;  // speaking OFF by default as you wanted
 let isListening = false;   // track if voice recognition is active
-
 /* ====== Speak toggle ====== */
 speakToggle.addEventListener("click", () => {
     speakEnabled = !speakEnabled;
@@ -167,7 +169,6 @@ speakToggle.addEventListener("click", () => {
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     }
 });
-
 /* ====== Helper to clean table text for speaking ====== */
 function getCleanTextFromTable(tableElem) {
     let rawText = tableElem.textContent || "";
@@ -176,16 +177,12 @@ function getCleanTextFromTable(tableElem) {
       .trim();
     return cleaned;
 }
-
 /* ====== Speak last bot message ====== */
 function speakLastBotMessage() {
     if (!speakEnabled || !('speechSynthesis' in window)) return;
-
     const lastBotBubble = chatHistory.querySelector(".chat-entry.bot-msg:last-child .bubble.bot");
     if (!lastBotBubble) return;
-
     let speakText = "";
-
     const tableElem = lastBotBubble.querySelector('table');
     if (tableElem) {
         speakText = getCleanTextFromTable(tableElem);
@@ -195,20 +192,17 @@ function speakLastBotMessage() {
             speakText = speakText.substring(4).trim();
         }
     }
-
     if (speakText) {
         const utterance = new SpeechSynthesisUtterance(speakText);
         utterance.lang = 'en-US';
         window.speechSynthesis.speak(utterance);
     }
 }
-
 /* ====== Submit handler (main) ====== */
 chatForm.addEventListener("submit", async function (e) {
     e.preventDefault();
     const message = messageInput.value.trim();
     if (!message) return;
-
     // Append user message
     chatHistory.insertAdjacentHTML("beforeend", `
         <div class="chat-entry user-msg">
@@ -217,7 +211,6 @@ chatForm.addEventListener("submit", async function (e) {
     `);
     chatHistory.scrollTop = chatHistory.scrollHeight;
     messageInput.value = "";
-
     // Create typing indicator + hidden stop button
     const typingElement = document.createElement("div");
     typingElement.classList.add("chat-entry", "bot-msg", "typing-indicator");
@@ -231,14 +224,11 @@ chatForm.addEventListener("submit", async function (e) {
     `;
     chatHistory.appendChild(typingElement);
     chatHistory.scrollTop = chatHistory.scrollHeight;
-
     const stopBtn = typingElement.querySelector('.stop-btn');
-
     // Show stop button after 1s
     const stopButtonTimer = setTimeout(() => {
         if (stopBtn) stopBtn.classList.add('visible');
     }, 1000);
-
     // Stop button handler
     stopBtn.addEventListener("click", async () => {
         try {
@@ -257,7 +247,6 @@ chatForm.addEventListener("submit", async function (e) {
             console.error("Error stopping execution:", err);
         }
     });
-
     // Send message to server
     try {
         const res = await fetch("/ask", {
@@ -265,25 +254,34 @@ chatForm.addEventListener("submit", async function (e) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message })
         });
-
         // stop button visibility timer cleared
         clearTimeout(stopButtonTimer);
-
         // parse response safely
         const data = await res.json();
-
         // If server explicitly signals stopped, do not process response
         if (data && data.status === "stopped") {
             if (typingElement.parentNode) typingElement.remove();
             return;
         }
-
         // Remove typing indicator (if still present)
         if (typingElement.parentNode) typingElement.remove();
-
-        // Only render if there is a real response
-        if (data && data.response) {
-
+        
+        // Check if template_url is not empty (table/chart response)
+        if (data.template_url && data.template_url !== '') {
+            // Display a simple clickable URL
+            chatHistory.insertAdjacentHTML("beforeend", `
+                <div class="chat-entry bot-msg">
+                    <div class="bot-controls">
+                        <div class="bubble bot">
+                            <strong>Bot:</strong> 
+                            <a href="${data.template_url}" target="_blank" class="template-link">${data.template_url}</a>
+                        </div>
+                    </div>
+                </div>
+            `);
+        } 
+        // Check if response is not empty (text response)
+        else if (data.response && data.response !== '') {
             // Check if it's chart data
             if (data.response.startsWith('CHART_DATA:')) {
                 const chartDataJson = data.response.replace('CHART_DATA:', '');
@@ -326,16 +324,14 @@ chatForm.addEventListener("submit", async function (e) {
                     </div>
                 `);
             }
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-
-            // Speak last bot message if enabled
-            speakLastBotMessage();
         }
-
+        
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+        // Speak last bot message if enabled
+        speakLastBotMessage();
     } catch (error) {
         clearTimeout(stopButtonTimer);
         if (typingElement.parentNode) typingElement.remove();
-
         chatHistory.insertAdjacentHTML("beforeend", `
             <div class="chat-entry bot-msg">
                 <div class="bot-controls">
@@ -347,14 +343,12 @@ chatForm.addEventListener("submit", async function (e) {
         console.error("Send error:", error);
     }
 });
-
 /* ====== Voice recognition (webkitSpeechRecognition fallback) ====== */
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SpeechRecognition) {
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.continuous = false;
-
     micBtn.addEventListener("click", () => {
         if (!isListening) {
             recognition.start();
@@ -367,44 +361,36 @@ if (SpeechRecognition) {
             resetMicButton();
         }
     });
-
     recognition.onresult = function(event) {
         const transcript = event.results[0][0].transcript;
         messageInput.value = transcript;
         resetMicButton();
-
         // Auto submit form on voice result
         chatForm.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
     };
-
     recognition.onerror = function(event) {
         console.error("Speech recognition error", event.error);
         resetMicButton();
     };
-
     recognition.onend = function() {
         resetMicButton();
     };
-
     function resetMicButton() {
         isListening = false;
         micBtn.innerHTML = '<i class="fa fa-microphone"></i>';
         micBtn.classList.remove('listening');
         micBtn.title = "Speak";
     }
-
 } else {
     micBtn.disabled = true;
     micBtn.title = "Voice not supported";
 }
-
 /* ====== File input display ====== */
 document.getElementById("fileUpload").addEventListener("change", function () {
     const file = this.files[0];
     const fileName = file ? file.name : "No file chosen";
     document.getElementById("fileName").textContent = fileName;
 });
-
 /* ====== Clear chat button ====== */
 clearChatBtn.addEventListener("click", async () => {
     const res = await fetch("/clear_chat", { method: "POST" });
@@ -422,7 +408,6 @@ clearChatBtn.addEventListener("click", async () => {
         alert("Failed to clear chat history.");
     }
 });
-
 /* ====== Inline Chart Rendering ====== */
 function renderInlineChart(chartData) {
     console.log('renderInlineChart called with data:', chartData);
@@ -556,6 +541,5 @@ function renderInlineChart(chartData) {
     }, 100);
 }
 </script>
-
 </body>
 </html>

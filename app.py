@@ -200,21 +200,59 @@ def generate_chart_html(chart_data):
         print(f"[ERROR] Error generating chart HTML: {str(e)}")
         return f"<p>Error generating chart: {str(e)}</p>"
 
-# === Helper function to check if request is from API client ===
-def is_api_request():
-    """Check if the request is from an API client (like Postman or Flutter)"""
-    # Check if it's an AJAX request or has specific headers
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        return True
+# === Helper function to convert table to text list ===
+def table_to_text_list(html_content):
+    """Convert HTML table to text list format"""
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        table = soup.find('table')
+        
+        if not table:
+            return html_content
+            
+        # Extract headers
+        headers = []
+        header_row = table.find('tr')
+        if header_row:
+            for th in header_row.find_all(['th', 'td']):
+                headers.append(th.get_text(strip=True))
+        
+        # Extract rows
+        rows = []
+        for row in table.find_all('tr')[1:]:  # Skip header row
+            cells = []
+            for cell in row.find_all(['td', 'th']):
+                cells.append(cell.get_text(strip=True))
+            if cells:
+                rows.append(cells)
+        
+        # Convert to text list format
+        text_list = ""
+        for i, row in enumerate(rows):
+            text_list += f"{i+1}. "
+            for j, cell in enumerate(row):
+                if j < len(headers):
+                    text_list += f"{headers[j]}: {cell}"
+                else:
+                    text_list += f"{cell}"
+                if j < len(row) - 1:
+                    text_list += ", "
+            text_list += "\n"
+        
+        return text_list
+    except Exception as e:
+        print(f"[ERROR] Error converting table to text list: {str(e)}")
+        return html_content
+
+# === Helper function to check if user is asking for a list ===
+def is_asking_for_list(user_input):
+    """Check if the user is asking for a list format"""
+    list_keywords = ['list', 'listing', 'show me list', 'give me list', 'in list format', 'as a list']
+    user_input_lower = user_input.lower()
     
-    # Check if User-Agent contains keywords for API clients
-    user_agent = request.headers.get('User-Agent', '').lower()
-    if 'postman' in user_agent or 'curl' in user_agent or 'flutter' in user_agent:
-        return True
-    
-    # Check if client explicitly requests API format
-    if request.json and request.json.get('api_client', False):
-        return True
+    for keyword in list_keywords:
+        if keyword in user_input_lower:
+            return True
     
     return False
 
@@ -297,28 +335,18 @@ def ask():
     start_time = time.time()
     
     try:
-        user_input = request.json.get('message')
+        user_input = request.json.get('message') if request.is_json else request.form.get('message')
         print(f"[DEBUG] Received request: {user_input}")
-        
-        # Check if the request is from an API client
-        api_client = is_api_request()
-        print(f"[DEBUG] Is API client: {api_client}")
         
         with data_lock:
             df = data_cache
         
         if df is None:
             print("[DEBUG] No data loaded")
-            if api_client:
-                return jsonify({
-                    'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.',
-                    'template_url': ''
-                })
-            else:
-                return jsonify({
-                    'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.',
-                    'template_url': ''
-                })
+            return jsonify({
+                'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.',
+                'template_url': ''
+            })
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -362,9 +390,20 @@ def ask():
         except Exception as e:
             print(f"[ERROR] Error saving to chat history: {str(e)}")
         
-        # Check if the response contains a table
-        if "<table" in response:
-            print("[DEBUG] Response contains table")
+        # Check if the user is asking for a list and the response contains a table
+        if is_asking_for_list(user_input) and "<table" in response:
+            print("[DEBUG] User asked for a list and response contains a table, converting to text list")
+            # Convert table to text list
+            text_list = table_to_text_list(response)
+            # Return the text list in the response field
+            return jsonify({
+                'response': text_list,
+                'template_url': ''
+            })
+        
+        # Check if the response contains a table and user is not asking for a list
+        elif "<table" in response and not is_asking_for_list(user_input):
+            print("[DEBUG] Response contains table and user didn't ask for a list")
             try:
                 # Parse the HTML table to structured JSON
                 structured_data = parse_table_to_json(response)
@@ -385,20 +424,11 @@ def ask():
                     content_url = url_for('view_content', content_id=content_id, _external=True)
                     print(f"[DEBUG] Generated table URL: {content_url}")
                     
-                    # If this is an API request, return empty response and URL in template_url
-                    if api_client:
-                        print("[DEBUG] Returning link for API client")
-                        return jsonify({
-                            'response': '',
-                            'template_url': content_url
-                        })
-                    else:
-                        # For web interface, return the original HTML in response field
-                        print("[DEBUG] Returning HTML for web interface")
-                        return jsonify({
-                            'response': response,
-                            'template_url': ''
-                        })
+                    # Return empty response and URL in template_url
+                    return jsonify({
+                        'response': '',
+                        'template_url': content_url
+                    })
                 else:
                     print("[DEBUG] Failed to parse table, returning as text")
                     return jsonify({
@@ -442,20 +472,11 @@ def ask():
                 content_url = url_for('view_content', content_id=content_id, _external=True)
                 print(f"[DEBUG] Generated chart URL: {content_url}")
                 
-                # If this is an API request, return empty response and URL in template_url
-                if api_client:
-                    print("[DEBUG] Returning link for API client")
-                    return jsonify({
-                        'response': '',
-                        'template_url': content_url
-                    })
-                else:
-                    # For web interface, return the original HTML in response field
-                    print("[DEBUG] Returning HTML for web interface")
-                    return jsonify({
-                        'response': response,
-                        'template_url': ''
-                    })
+                # Return empty response and URL in template_url
+                return jsonify({
+                    'response': '',
+                    'template_url': content_url
+                })
             except Exception as e:
                 print(f"[ERROR] Error creating chart link: {str(e)}")
                 print(traceback.format_exc())
@@ -534,5 +555,5 @@ def clear_chat():
 
 # === Entry Point ===
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5002))
+    port = int(os.environ.get('PORT', 5003))
     app.run(host='0.0.0.0', port=port, debug=True)
