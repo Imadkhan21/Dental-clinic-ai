@@ -200,6 +200,24 @@ def generate_chart_html(chart_data):
         print(f"[ERROR] Error generating chart HTML: {str(e)}")
         return f"<p>Error generating chart: {str(e)}</p>"
 
+# === Helper function to check if request is from API client ===
+def is_api_request():
+    """Check if the request is from an API client (like Postman or Flutter)"""
+    # Check if it's an AJAX request or has specific headers
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    
+    # Check if User-Agent contains keywords for API clients
+    user_agent = request.headers.get('User-Agent', '').lower()
+    if 'postman' in user_agent or 'curl' in user_agent or 'flutter' in user_agent:
+        return True
+    
+    # Check if client explicitly requests API format
+    if request.json and request.json.get('api_client', False):
+        return True
+    
+    return False
+
 # === Routes ===
 @app.route('/')
 def index():
@@ -282,19 +300,25 @@ def ask():
         user_input = request.json.get('message')
         print(f"[DEBUG] Received request: {user_input}")
         
-        # Check if the request is from an API client (like Postman or Flutter)
-        is_api_request = request.headers.get('User-Agent', '').startswith('Postman') or \
-                        request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
-                        request.json.get('api_client', False)
-        
-        print(f"[DEBUG] Is API request: {is_api_request}")
+        # Check if the request is from an API client
+        api_client = is_api_request()
+        print(f"[DEBUG] Is API client: {api_client}")
         
         with data_lock:
             df = data_cache
         
         if df is None:
             print("[DEBUG] No data loaded")
-            return jsonify({'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.'})
+            if api_client:
+                return jsonify({
+                    'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.',
+                    'template_url': ''
+                })
+            else:
+                return jsonify({
+                    'response': '⚠ No file uploaded or data loaded. Please upload a CSV first.',
+                    'template_url': ''
+                })
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -303,7 +327,7 @@ def ask():
         
         if stop_execution_flag:
             print("[DEBUG] Execution stopped by flag")
-            return jsonify({'status': 'stopped', 'response': None})
+            return jsonify({'status': 'stopped', 'response': None, 'template_url': ''})
         
         print(f"[DEBUG] Getting chat response... (Time: {time.time() - start_time:.2f}s)")
         try:
@@ -320,11 +344,14 @@ def ask():
         except Exception as e:
             print(f"[ERROR] Error in get_chat_response: {str(e)}")
             print(traceback.format_exc())
-            return jsonify({'response': f'Error getting response: {str(e)}'})
+            return jsonify({
+                'response': f'Error getting response: {str(e)}',
+                'template_url': ''
+            })
         
         if stop_execution_flag:
             print("[DEBUG] Execution stopped by flag after getting response")
-            return jsonify({'status': 'stopped', 'response': None})
+            return jsonify({'status': 'stopped', 'response': None, 'template_url': ''})
         
         try:
             with sqlite3.connect(DB_FILE) as conn:
@@ -358,22 +385,34 @@ def ask():
                     content_url = url_for('view_content', content_id=content_id, _external=True)
                     print(f"[DEBUG] Generated table URL: {content_url}")
                     
-                    # If this is an API request, return the link
-                    if is_api_request:
-                        print("[DEBUG] Returning link for API request")
-                        return jsonify({'response': content_url})
+                    # If this is an API request, return empty response and URL in template_url
+                    if api_client:
+                        print("[DEBUG] Returning link for API client")
+                        return jsonify({
+                            'response': '',
+                            'template_url': content_url
+                        })
                     else:
-                        # For web interface, return the original HTML
+                        # For web interface, return the original HTML in response field
                         print("[DEBUG] Returning HTML for web interface")
-                        return jsonify({'response': response})
+                        return jsonify({
+                            'response': response,
+                            'template_url': ''
+                        })
                 else:
                     print("[DEBUG] Failed to parse table, returning as text")
-                    return jsonify({'response': response})
+                    return jsonify({
+                        'response': response,
+                        'template_url': ''
+                    })
             except Exception as e:
                 print(f"[ERROR] Error creating table link: {str(e)}")
                 print(traceback.format_exc())
                 # Fall back to the original response
-                return jsonify({'response': response})
+                return jsonify({
+                    'response': response,
+                    'template_url': ''
+                })
         
         # Check if the response contains chart data
         elif "CHART_DATA:" in response:
@@ -403,30 +442,45 @@ def ask():
                 content_url = url_for('view_content', content_id=content_id, _external=True)
                 print(f"[DEBUG] Generated chart URL: {content_url}")
                 
-                # If this is an API request, return the link
-                if is_api_request:
-                    print("[DEBUG] Returning link for API request")
-                    return jsonify({'response': content_url})
+                # If this is an API request, return empty response and URL in template_url
+                if api_client:
+                    print("[DEBUG] Returning link for API client")
+                    return jsonify({
+                        'response': '',
+                        'template_url': content_url
+                    })
                 else:
-                    # For web interface, return the original HTML
+                    # For web interface, return the original HTML in response field
                     print("[DEBUG] Returning HTML for web interface")
-                    return jsonify({'response': response})
+                    return jsonify({
+                        'response': response,
+                        'template_url': ''
+                    })
             except Exception as e:
                 print(f"[ERROR] Error creating chart link: {str(e)}")
                 print(traceback.format_exc())
                 # Fall back to the original response
-                return jsonify({'response': response})
+                return jsonify({
+                    'response': response,
+                    'template_url': ''
+                })
         
         # Regular text response
         else:
             print("[DEBUG] Regular text response")
-            # Return the text response in the response field
-            return jsonify({'response': response})
+            # Return the text response in the response field and empty template_url
+            return jsonify({
+                'response': response,
+                'template_url': ''
+            })
     
     except Exception as e:
         print(f"[ERROR] Unhandled exception in /ask: {str(e)}")
         print(traceback.format_exc())
-        return jsonify({'response': f'Error: {str(e)}'})
+        return jsonify({
+            'response': f'Error: {str(e)}',
+            'template_url': ''
+        })
     
     finally:
         print(f"[DEBUG] Request completed in {time.time() - start_time:.2f}s")
@@ -480,5 +534,5 @@ def clear_chat():
 
 # === Entry Point ===
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5003))
+    port = int(os.environ.get('PORT', 5002))
     app.run(host='0.0.0.0', port=port, debug=True)
