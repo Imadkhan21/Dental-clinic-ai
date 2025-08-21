@@ -7,6 +7,8 @@ import re
 import io
 import base64
 import json
+import matplotlib
+matplotlib.use('Agg')  # Fix for threading issues
 import matplotlib.pyplot as plt
 import uuid
 from flask import Flask, render_template, request, redirect, url_for, jsonify
@@ -15,7 +17,6 @@ from chatbot_model import get_chat_response  # Make sure chatbot_model.py exists
 from bs4 import BeautifulSoup
 import traceback
 import time
-
 # === Paths ===
 stop_execution_flag = False
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -23,12 +24,10 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'csv', 'db'}
 STATIC_CSV = os.path.join(BASE_DIR, 'patient_details2.csv')  # Default CSV
 DB_FILE = os.path.join(BASE_DIR, 'chatbot_data.db')
-
 # === Flask App ===
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.secret_key = 'AIzaSyDhSrwZaIdEM2WVIELNAu7qIa-WRfbsqn4'
-
 # === DB Initialization ===
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
@@ -40,29 +39,24 @@ def init_db():
                         (id TEXT PRIMARY KEY, content_type TEXT, content_data TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         conn.commit()
 init_db()
-
 # === Cache & Lock ===
 data_cache = None
 data_lock = threading.Lock()
-
 # === File Utils ===
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 def get_current_file():
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT filename FROM current_file ORDER BY id DESC LIMIT 1")
         result = cursor.fetchone()
     return result[0] if result else None
-
 def set_current_file(filename):
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM current_file")
         cursor.execute("INSERT INTO current_file (filename) VALUES (?)", (filename,))
         conn.commit()
-
 def load_data():
     global data_cache
     current_file = get_current_file()
@@ -84,10 +78,8 @@ def load_data():
     else:
         with data_lock:
             data_cache = None
-
 # Change STATIC_CSV path to match where you actually store it in repo
 STATIC_CSV = os.path.join(BASE_DIR, 'uploads', 'patient_details2.csv')  
-
 def bootstrap_dataset():
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     current = get_current_file()
@@ -101,13 +93,11 @@ def bootstrap_dataset():
             print(f"[INIT] Seed dataset loaded: {dest}")
         else:
             print(f"[INIT] No static CSV found at {STATIC_CSV}")
-
 try:
     bootstrap_dataset()
     load_data()
 except Exception as e:
     print(f"[INIT] Bootstrap error: {e}")
-
 # === Helper function to parse HTML table to JSON ===
 def parse_table_to_json(html_content):
     """Parse HTML table to structured JSON data"""
@@ -141,7 +131,6 @@ def parse_table_to_json(html_content):
     except Exception as e:
         print(f"[ERROR] Error parsing table: {str(e)}")
         return None
-
 # === Helper function to generate table HTML ===
 def generate_table_html(headers, rows):
     """Generate HTML table from headers and rows"""
@@ -163,7 +152,6 @@ def generate_table_html(headers, rows):
     
     html += "</table>"
     return html
-
 # === Helper function to generate chart HTML ===
 def generate_chart_html(chart_data):
     """Generate HTML for chart from chart data"""
@@ -171,14 +159,52 @@ def generate_chart_html(chart_data):
         labels = chart_data.get("labels", [])
         values = chart_data.get("values", [])
         title = chart_data.get("title", "Chart")
+        chart_type = chart_data.get("chart_type", "bar")  # Get chart type, default to bar
         
-        # Generate chart
+        # Generate chart based on type
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.bar(labels, values)
+        
+        if chart_type.lower() == "pie":
+            # For pie charts, we need to ensure values are positive
+            pie_values = [abs(float(v)) for v in values]
+            # Create pie chart
+            ax.pie(pie_values, labels=labels, autopct='%1.1f%%', startangle=90)
+            ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+        elif chart_type.lower() == "line":
+            # For line charts, we need to convert labels to numeric if they're not already
+            try:
+                # Try to convert labels to numeric values for x-axis
+                x_values = [float(i) for i in range(len(labels))]  # Use index as x-values
+                y_values = [float(v) for v in values]
+                
+                # Create line chart
+                ax.plot(x_values, y_values, marker='o', linestyle='-')
+                
+                # Set x-axis ticks to show actual labels
+                ax.set_xticks(x_values)
+                ax.set_xticklabels(labels, rotation=45, ha='right')
+            except (ValueError, TypeError) as e:
+                print(f"[ERROR] Error creating line chart: {str(e)}")
+                # Fall back to bar chart if line chart fails
+                ax.bar(labels, values)
+                chart_type = "bar"
+        else:
+            # Default to bar chart
+            ax.bar(labels, values)
+            ax.set_xlabel("Category")
+            ax.set_ylabel("Value")
+            plt.xticks(rotation=45, ha='right')
+        
         ax.set_title(title)
-        ax.set_xlabel("Category")
-        ax.set_ylabel("Value")
-        plt.xticks(rotation=45, ha='right')
+        
+        # Add appropriate labels based on chart type
+        if chart_type.lower() == "line":
+            ax.set_xlabel("Category")
+            ax.set_ylabel("Value")
+        elif chart_type.lower() != "pie":  # For bar and other charts
+            ax.set_xlabel("Category")
+            ax.set_ylabel("Value")
+        
         plt.tight_layout()
         
         # Convert to base64
@@ -199,7 +225,6 @@ def generate_chart_html(chart_data):
     except Exception as e:
         print(f"[ERROR] Error generating chart HTML: {str(e)}")
         return f"<p>Error generating chart: {str(e)}</p>"
-
 # === Helper function to convert table to text list ===
 def table_to_text_list(html_content):
     """Convert HTML table to text list format"""
@@ -243,7 +268,6 @@ def table_to_text_list(html_content):
     except Exception as e:
         print(f"[ERROR] Error converting table to text list: {str(e)}")
         return html_content
-
 # === Helper function to check if user is asking for a list ===
 def is_asking_for_list(user_input):
     """Check if the user is asking for a list format"""
@@ -256,6 +280,32 @@ def is_asking_for_list(user_input):
     
     return False
 
+# === Helper function to check if user is asking for a chart ===
+def is_asking_for_chart(user_input):
+    """Check if the user is asking for a chart"""
+    chart_keywords = ['chart', 'graph', 'plot', 'visualize', 'visualization', 'bar chart', 'pie chart', 'line chart']
+    user_input_lower = user_input.lower()
+    
+    for keyword in chart_keywords:
+        if keyword in user_input_lower:
+            return True
+    
+    return False
+
+# === Helper function to extract invoice numbers from user input ===
+def extract_invoices_from_input(user_input):
+    """Extract invoice numbers from user input"""
+    # Pattern to match invoice numbers (INV followed by digits)
+    invoice_pattern = re.compile(r'INV\d+')
+    return invoice_pattern.findall(user_input)
+
+# === Helper function to extract MRN numbers from user input ===
+def extract_mrn_numbers_from_input(user_input):
+    """Extract MRN numbers from user input (starting with 24 or 25)"""
+    # Pattern to match MRN numbers (starting with 24 or 25, followed by more digits)
+    mrn_pattern = re.compile(r'\b(24\d+|25\d+)\b')
+    return mrn_pattern.findall(user_input)
+
 # === Routes ===
 @app.route('/')
 def index():
@@ -265,7 +315,6 @@ def index():
         cursor.execute("SELECT message, response FROM chat_history")
         history = cursor.fetchall()
     return render_template('index.html', history=history, filename=current_file)
-
 @app.route('/view/<content_id>')
 def view_content(content_id):
     try:
@@ -327,7 +376,6 @@ def view_content(content_id):
     except Exception as e:
         print(f"[ERROR] Error viewing content: {str(e)}")
         return f"Error: {str(e)}", 500
-
 @app.route('/ask', methods=['POST'])
 def ask():
     global stop_execution_flag
@@ -356,6 +404,26 @@ def ask():
         if stop_execution_flag:
             print("[DEBUG] Execution stopped by flag")
             return jsonify({'status': 'stopped', 'response': None, 'template_url': ''})
+        
+        # Check if user is asking for a chart with specific items
+        if is_asking_for_chart(user_input):
+            # Check for invoice numbers
+            invoices = extract_invoices_from_input(user_input)
+            if invoices and len(invoices) < 15:
+                print(f"[DEBUG] User asking for chart with {len(invoices)} invoices, which is less than 15")
+                return jsonify({
+                    'response': "I'd be happy to generate a chart for you, but for invoice data, we need at least 15 invoices to create a meaningful visualization. Could you provide more invoice numbers or ask about a different aspect of the data?",
+                    'template_url': ''
+                })
+            
+            # Check for MRN numbers
+            mrn_numbers = extract_mrn_numbers_from_input(user_input)
+            if mrn_numbers and len(mrn_numbers) < 15:
+                print(f"[DEBUG] User asking for chart with {len(mrn_numbers)} MRN numbers, which is less than 15")
+                return jsonify({
+                    'response': "I'd be happy to generate a chart for you, but for MRN number data, we need at least 15 MRN numbers to create a meaningful visualization. Could you provide more MRN numbers or ask about a different aspect of the data?",
+                    'template_url': ''
+                })
         
         print(f"[DEBUG] Getting chat response... (Time: {time.time() - start_time:.2f}s)")
         try:
@@ -505,13 +573,11 @@ def ask():
     
     finally:
         print(f"[DEBUG] Request completed in {time.time() - start_time:.2f}s")
-
 @app.route('/stop_execution', methods=['POST'])
 def stop_execution():
     global stop_execution_flag
     stop_execution_flag = True
     return jsonify({'status': 'stopped'})
-
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -520,7 +586,7 @@ def upload_file():
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         file.save(save_path)
         set_current_file(filename)
         load_data()
@@ -528,7 +594,6 @@ def upload_file():
             conn.execute("DELETE FROM chat_history")
             conn.commit()
     return redirect(url_for('index'))
-
 @app.route('/delete_file', methods=['POST'])
 def delete_file():
     current_file = get_current_file()
@@ -545,15 +610,13 @@ def delete_file():
         with data_lock:
             data_cache = None
     return redirect(url_for('index'))
-
 @app.route('/clear_chat', methods=['POST'])
 def clear_chat():
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute("DELETE FROM chat_history")
         conn.commit()
     return jsonify({'status': 'cleared'})
-
 # === Entry Point ===
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5003))
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
